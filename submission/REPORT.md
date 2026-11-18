@@ -33,7 +33,9 @@ Calib chỉ có 39 ảnh nên các tỷ lệ dễ đổi khi gặp phân bố kh
 
 Lần chạy chuẩn hết lỗi ERROR nhưng vẫn Hold vì 34/193 = 17,62% ảnh còn cảnh báo. Để chứng minh gate chặn lỗi bắt buộc, chạy `python -m pipeline.run --budget 0 --reports work/rep_nb --export-dir work/exp_nb`: kết quả Rework, mã thoát 20, còn 6 lỗi bắt buộc `MISSING_LABEL_FILE`, và `work/exp_nb/clean_v1` không tồn tại.
 
-Hai giới hạn có bằng chứng: (1) trên calib, check box lỏng chỉ bắt đúng 1/5 lỗi chèn và có 4 cảnh báo nhầm; một model lớn hơn không thay được mắt người. (2) check nhầm lớp bỏ sót 1/6 lỗi chèn ở ngưỡng đã chọn; model có thể cùng sai với nhãn. Khi xem ảnh mẫu, `img_0004` có file nhãn rỗng trong khi thấy xe ở góc dưới bên phải; `EMPTY_LABEL`/`POSSIBLE_MISSING` chỉ nêu nghi vấn, người phải xác định các xe đó có thuộc phạm vi gán nhãn hay không.
+Hai giới hạn có bằng chứng: (1) trên calib, check box lỏng chỉ bắt đúng 1/5 lỗi chèn và có 4 cảnh báo nhầm; một model lớn hơn không thay được mắt người. (2) check nhầm lớp bỏ sót 1/6 lỗi chèn ở ngưỡng đã chọn; model có thể cùng sai với nhãn.
+
+Ghi nhận khi xem ảnh: `img_0001` thiếu box người lính ở giữa; `img_0002` box/dòng nhãn số 2 sai; `img_0005` box/dòng số 5 sai; `img_0007` thiếu một số box car. `img_0004` có file nhãn rỗng: train nhìn thấy trong ảnh nhưng không thuộc 4 lớp dự án (`car`, `person`, `truck`, `bus`), vì vậy không tạo box train. Ảnh cũng có xe ở góc dưới phải; cần xem xét box `car` nếu xe đó thuộc phạm vi gán nhãn. Số 2/5 ở đây là thứ tự dòng/box trong ảnh; ID lớp là cột đầu tiên của dòng YOLO.
 
 ## 5. Train: raw vs clean
 
