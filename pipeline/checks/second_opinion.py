@@ -40,5 +40,84 @@ from ..model_cache import get_preds  # noqa: F401
 
 
 def run(ds, cfg, preds=None):
-    # TODO
-    raise NotImplementedError("check second_opinion chưa làm")
+    """So nhãn với dự đoán model cache; chỉ tạo cảnh báo để người xem xét."""
+    if preds is None:
+        preds = get_preds(ds, cfg, "checker")
+
+    rules = cfg["second_opinion"]
+    issues = []
+    for image_path in ds.image_files():
+        stem = image_path.stem
+        if stem not in preds or not ds.label_path(stem).exists():
+            continue
+        size = ds.image_size(stem)
+        if size is None:
+            continue
+        image_width, image_height = size
+
+        # Retain source line numbers while matching the same valid rows as Dataset.valid_boxes.
+        labels = []
+        for line_no, raw in ds.read_label_lines(stem) or []:
+            try:
+                box = parse_yolo_line(raw)
+            except (ValueError, OverflowError):
+                continue
+            if not 0 <= box[0] < len(ds.classes):
+                continue
+            labels.append((line_no, box[0], tuple(box[1:])))
+
+        parsed_preds = []
+        for raw_pred in preds.get(stem, []):
+            try:
+                cls, conf, cx, cy, width, height = raw_pred
+                pred = (int(cls), float(conf), float(cx), float(cy), float(width), float(height))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not all(value == value and abs(value) != float("inf") for value in pred):
+                continue
+            parsed_preds.append(pred)
+
+        checked_preds = [
+            pred for pred in parsed_preds
+            if pred[1] >= rules["conf"]
+            and pred[4] * image_width * pred[5] * image_height >= rules["min_area_px"]
+        ]
+        all_for_false_positive = [pred for pred in parsed_preds if pred[1] >= rules["fp_conf"]]
+
+        # Report model-first disagreements in prediction order.
+        for cls, conf, cx, cy, width, height in checked_preds:
+            pred_box = (cx, cy, width, height)
+            candidates = [
+                (label_cls, label_box, iou_xywh(pred_box, label_box))
+                for _, label_cls, label_box in labels
+                if iou_xywh(pred_box, label_box) >= rules["iou_missing"]
+            ]
+            if not candidates:
+                issues.append(Issue("second_opinion", WARN, "POSSIBLE_MISSING", stem,
+                                    "Model thấy vật chưa có box nhãn tương ứng", extra={"conf": conf}))
+                continue
+
+            same_class = [item for item in candidates if item[0] == cls]
+            if same_class:
+                best_iou = max(item[2] for item in same_class)
+                if best_iou < rules["iou_loose"]:
+                    issues.append(Issue("second_opinion", WARN, "POSSIBLE_LOOSE_BOX", stem,
+                                        "Box cùng lớp có thể lỏng hoặc lệch so với dự đoán", extra={"conf": conf, "iou": best_iou}))
+                continue
+
+            other_class = [item for item in candidates if item[0] != cls]
+            if other_class:
+                best_iou = max(item[2] for item in other_class)
+                if best_iou >= rules["iou_match"]:
+                    issues.append(Issue("second_opinion", WARN, "POSSIBLE_WRONG_CLASS", stem,
+                                        "Model và nhãn có thể bất đồng về lớp", extra={"conf": conf, "iou": best_iou}))
+
+        # Label-first disagreements use fp_conf and deliberately have no area filter.
+        for line_no, _, label_box in labels:
+            best_iou = max((iou_xywh(label_box, pred[2:]) for pred in all_for_false_positive), default=0.0)
+            if best_iou < rules["iou_missing"]:
+                issues.append(Issue("second_opinion", WARN, "POSSIBLE_FALSE_POS", stem,
+                                    "Box nhãn không khớp dự đoán nào của model", line_no,
+                                    {"iou": best_iou}))
+
+    return issues
