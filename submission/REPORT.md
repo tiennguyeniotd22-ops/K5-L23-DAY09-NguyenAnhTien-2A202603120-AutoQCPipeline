@@ -2,7 +2,7 @@
 
 ## 1. Kết luận trước
 
-Kết luận **Hold**. Pipeline quét 224 ảnh, loại 31 ảnh ở cửa nhận và giữ 193 ảnh. Sau tự sửa và mô phỏng duyệt 80/121 ảnh trong hàng đợi, không còn lỗi ERROR, nhưng 34/193 ảnh còn cảnh báo chưa xử lý (17,62%), cao hơn ngưỡng Hold 10%. `clean_v1` gồm 193 ảnh và có manifest ghi Hold; đây là bản nháp, chưa được phát hành.
+Kết luận **Hold**. Pipeline quét 224 ảnh, loại 31 ảnh ở cửa nhận và giữ 193 ảnh. Sau tự sửa và mô phỏng duyệt 80/121 ảnh trong hàng đợi, không còn lỗi ERROR, nhưng 34/193 ảnh còn cảnh báo chưa xử lý (17,62%), cao hơn ngưỡng Hold 10%. `clean_v1` gồm 193 ảnh và manifest ghi quyết định Hold.
 
 ## 2. Lỗi và phân việc
 
@@ -31,22 +31,38 @@ Calib chỉ có 39 ảnh nên các tỷ lệ dễ đổi khi gặp phân bố kh
 
 ## 4. Cửa chặn và điểm mù
 
-Lần chạy chuẩn hết lỗi ERROR nhưng vẫn Hold vì 34/193 = 17,62% ảnh còn cảnh báo. Để chứng minh gate chặn lỗi bắt buộc, chạy `python -m pipeline.run --budget 0 --reports work/rep_nb --export-dir work/exp_nb`: kết quả Rework, mã thoát 20, còn 6 lỗi bắt buộc `MISSING_LABEL_FILE`, và `work/exp_nb/clean_v1` không tồn tại.
+Lần chạy chuẩn hết lỗi ERROR nhưng vẫn Hold vì 34/193 = 17,62% ảnh còn cảnh báo. Để chứng minh gate chặn lỗi bắt buộc, chạy `python -m pipeline.run --budget 0 --reports work/rep_nb --export-dir work/exp_nb`: kết quả Rework, mã thoát 20, còn 6 lỗi bắt buộc `MISSING_LABEL_FILE`, và `work/exp_nb/clean_v1` không tồn tại. Vì ngân sách duyệt bằng 0 nên mô phỏng không gán nhãn cho 6 ảnh này; `autofix` chỉ chuyển chúng cho người gán, không tạo file nhãn.
 
 Hai giới hạn có bằng chứng: (1) trên calib, check box lỏng chỉ bắt đúng 1/5 lỗi chèn và có 4 cảnh báo nhầm; một model lớn hơn không thay được mắt người. (2) check nhầm lớp bỏ sót 1/6 lỗi chèn ở ngưỡng đã chọn; model có thể cùng sai với nhãn.
 
-Ghi nhận khi xem ảnh: `img_0001` thiếu box người lính ở giữa; `img_0002` box/dòng nhãn số 2 sai; `img_0005` box/dòng số 5 sai; `img_0007` thiếu một số box car. `img_0004` có file nhãn rỗng: train nhìn thấy trong ảnh nhưng không thuộc 4 lớp dự án (`car`, `person`, `truck`, `bus`), vì vậy không tạo box train. Ảnh cũng có xe ở góc dưới phải; cần xem xét box `car` nếu xe đó thuộc phạm vi gán nhãn. Số 2/5 ở đây là thứ tự dòng/box trong ảnh; ID lớp là cột đầu tiên của dòng YOLO.
+Ghi nhận khi xem ảnh: `img_0001` thiếu box người lính ở giữa; ở `img_0002`, box thứ 2 và ở `img_0005`, box thứ 5 cần chỉnh khung theo quan sát. Hai dòng nhãn hiện có ID lớp 1 (`person`), nên đây là ghi nhận về box, không phải khẳng định sai ID lớp. `img_0007` thiếu một số box car. `img_0004` có file nhãn rỗng: train nhìn thấy trong ảnh nhưng không thuộc 4 lớp dự án (`car`, `person`, `truck`, `bus`), vì vậy không tạo box train. Ảnh cũng có xe ở góc dưới phải; cần xem xét box `car` nếu xe đó thuộc phạm vi gán nhãn. Số 2/5 là thứ tự dòng/box; ID lớp là cột đầu tiên của dòng YOLO.
 
 ## 5. Train: raw vs clean
 
-Chưa chạy. Phần train là tùy chọn và cần chạy notebook trên Google Colab với GPU; không có kết quả train nào được tạo hoặc suy đoán trong báo cáo này.
+Tôi đã chạy thử cục bộ trên GPU NVIDIA GeForce RTX 3050 Laptop (4 GB VRAM), PyTorch 2.6.0+cu118 và Ultralytics 8.4.214. Cả hai biến thể dùng cùng model khởi tạo `yolo26n.pt`, 20 epoch, ảnh 640 × 640, batch 2, thiết bị CUDA 0 và hai seed 0, 1. Mỗi lượt dùng 40 ảnh validation; đánh giá cuối trên cùng tập test gồm 100 ảnh và 387 đối tượng.
+
+| Biến thể | Ảnh nguồn / ảnh thực sự dùng train | Số seed | mAP50 (TB ± độ lệch chuẩn) | mAP50-95 (TB ± độ lệch chuẩn) | Precision (TB ± độ lệch chuẩn) | Recall (TB ± độ lệch chuẩn) |
+|---|---:|---:|---:|---:|---:|---:|
+| raw | 224 / 213 | 2 | 0,651 ± 0,017 | 0,462 ± 0,016 | 0,721 ± 0,046 | 0,579 ± 0,025 |
+| clean | 193 / 193 | 2 | 0,675 ± 0,001 | 0,465 ± 0,010 | 0,776 ± 0,029 | 0,571 ± 0,051 |
+
+Ở biến thể raw, Ultralytics bỏ qua 11 ảnh hoặc nhãn hỏng/không hợp lệ khi nạp dữ liệu nên thực tế train bằng 213 ảnh; biến thể clean nạp đủ 193 ảnh. mAP50 của clean cao hơn raw 0,024 điểm (0,675 so với 0,651), lớn hơn độ lệch chuẩn của từng bên (±0,017 và ±0,001); clean cũng ổn định hơn rõ rệt giữa hai seed. Ngược lại, mAP50-95 chỉ cao hơn 0,003 (0,465 so với 0,462), thấp hơn độ lệch chuẩn của cả raw (±0,016) và clean (±0,010). Vì vậy, kết quả này chưa cho thấy clean cải thiện rõ độ khít của bounding box. Mỗi biến thể mới chạy hai seed nên độ bất định vẫn lớn; chưa thể khẳng định pipeline luôn cải thiện khả năng tổng quát hóa.
+
+Hai giả thuyết cần kiểm chứng:
+
+1. **Rò rỉ tập đánh giá và ảnh trùng trong raw:** Báo cáo intake ghi nhận 11 ảnh `LEAK_TEST`, 8 ảnh `DUP_IMAGE_EXACT` và 7 ảnh `DUP_IMAGE_NEAR`. Biến thể raw lấy nguyên 224 ảnh nguồn, nên các ảnh này còn được đưa vào tập train; điều đó có thể làm kết quả test bị lệch hoặc khiến một số mẫu được lặp trọng số. Để kiểm tra, tạo một lượt raw đã loại các ảnh rò rỉ và bản trùng, giữ nguyên tập test, model, siêu tham số và seed, rồi so sánh lại các chỉ số.
+2. **Cảnh báo nhãn chưa được người duyệt xử lý trong clean:** 34/193 ảnh clean còn cảnh báo chưa xử lý; trong các nhóm cảnh báo có box lỏng (`POSSIBLE_LOOSE_BOX`) và khả năng thiếu box (`POSSIBLE_MISSING`). Các nhãn này có thể ảnh hưởng mạnh hơn tới mAP50-95, vốn yêu cầu box khớp chặt hơn. Để kiểm tra, tự mở và rà soát 34 ảnh, chỉ sửa lỗi được xác nhận từ ảnh, sau đó train lại clean với cùng hai seed và cấu hình, rồi đối chiếu mAP50-95.
+
+`clean_v1` hiện mang quyết định Hold và còn cảnh báo chưa được người duyệt xử lý, nên các số liệu trên mô tả thử nghiệm với dữ liệu hiện trạng; chúng không làm thay đổi kết luận của gate hay xác nhận bộ nhãn đã sẵn sàng phát hành.
+
+Các kết quả từng lượt nằm trong `submission/results/raw_seed0.json`, `raw_seed1.json`, `clean_seed0.json`, `clean_seed1.json`; bảng, số liệu tổng hợp và biểu đồ được tạo tại `submission/results/comparison.md`, `comparison.json` và `comparison.png`.
 
 ## 6. Quyết định và ghi chú AI
 
-Quyết định cuối là **Hold**; chỉ cân nhắc Release khi không còn ERROR và số ảnh còn cảnh báo chưa xử lý giảm xuống tối đa 19/193 (dưới 10%). Không đổi ngưỡng gate hay ngân sách duyệt.
+Kết luận hiện tại là **Hold**. Kết quả này trung thực với số liệu: còn 34/193 ảnh có cảnh báo chưa xử lý, trong khi ngưỡng Hold là 10%. Bài lab cho phép báo Hold; không thay đổi ngưỡng gate hay ngân sách duyệt để ép Release.
 
-- Prompt: dùng docstring và test của bốn module để viết đúng vào/ra; đọc ngưỡng từ config; chỉ sửa dataset làm việc; không đọc đáp án trong code QC; model thứ hai chỉ cảnh báo.
-- Kiểm tra: 50 test riêng của bốn module và toàn bộ 79 test xanh; chạy calibration, pipeline, xem mẫu ảnh và thử gate với budget 0. `check-core` ban đầu quét nhầm file khóa do dấu phân cách đường dẫn Windows; chuẩn hóa đường dẫn sang POSIX giữ nguyên kiểm soát, sau đó checker báo 0 lỗi (1 cảnh báo vì chưa train).
-- Lỗi AI đã sửa: bản đầu có thể ghi `needs_label` cho ảnh đồng thời bị xóa; rà lại ca biên đã giúp bỏ hành động thừa này trước lần kiểm cuối.
+AI được dùng để hỗ trợ viết bốn module, rà soát cách chạy và thực hiện thí nghiệm train cục bộ. Yêu cầu là bám docstring và test có sẵn, đọc lớp/ngưỡng từ `cfg`, chỉ sửa dataset làm việc và để `second_opinion` tạo cảnh báo thay vì tự đổi nhãn. Khi rà bản đầu của `autofix`, phát hiện ảnh vừa bị xóa vẫn có thể nhận log `needs_label`; đã thêm điều kiện bỏ qua ảnh trong `remove_images`. Box không còn diện tích sau khi cắt được chuyển thành `drop_line`. Các chỉ số train trong mục 5 được lấy từ kết quả chương trình sau khi chạy, không phải số liệu ước đoán.
 
-Train Colab và phần thưởng CVAT chưa làm; có thể bổ sung sau nếu cần các điểm tùy chọn.
+Để kiểm tra, đã chạy 50 test riêng của bốn module và 79 test toàn dự án; tất cả đều đạt. Calibration và pipeline cũng đã chạy: pipeline chuẩn ra Hold, mã 10; với ngân sách duyệt 0, gate ra Rework, mã 20 và không xuất dataset. Checker trên Windows ban đầu quét nhầm file calibration đã khóa do khác dấu phân cách đường dẫn; sau khi chuẩn hóa đường dẫn, `check-core` báo 0 lỗi. Lần chạy checker đó còn cảnh báo vì chưa có kết quả train; phần train được thực hiện sau và ghi ở mục 5.
+
+**Kế hoạch hành động:** Trước khi nộp, tôi sẽ tự đọc lại bốn module và mở ảnh để xác nhận các ghi nhận ở mục 4. Nếu muốn hướng tới Release, tôi cần tự xem xét và xử lý cảnh báo của ít nhất 15 trong 34 ảnh còn lại, trong giới hạn ngân sách tối đa 80 ảnh; tôi chỉ chỉnh nhãn khi ảnh xác nhận có lỗi. Sau đó tôi sẽ chạy lại pipeline. Chỉ kết luận Release khi không còn ERROR và số ảnh cảnh báo chưa xử lý còn tối đa 19/193 (dưới 10%); nếu chưa đạt, tôi giữ kết luận Hold. Phần so sánh train raw và clean đã được chạy cục bộ và ghi kết quả ở mục 5.
